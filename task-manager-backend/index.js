@@ -39,7 +39,9 @@ app.get('/auth/google/callback',
     const token = req.user.token;
     res.redirect(`http://localhost:5173/dashboard?token=${token}`);
   }
-);app.post('/api/tasks', async (req, res) => {
+);
+
+app.post('/api/tasks', async (req, res) => {
     const authHeader = req.headers.authorization;
     const token = authHeader?.split(' ')[1];
   
@@ -47,23 +49,125 @@ app.get('/auth/google/callback',
   
     try {
       const user = jwt.verify(token, process.env.JWT_SECRET);
-      const { title } = req.body;
+      const { task_name, due_date, description } = req.body;
   
-      if (!title || typeof title !== 'string') {
+      if (!task_name || typeof task_name !== 'string') {
         return res.status(400).json({ message: 'Invalid task title' });
       }
   
       await pool.query(
-        'INSERT INTO tasks (user_email, title) VALUES ($1, $2)',
-        [user.email, title]
+        `INSERT INTO taskstatusdb (email, task_name, status, due_date, description, date_created)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [user.email, task_name, 'incomplete', due_date, description || null]
       );
-  
+        
       res.status(201).json({ message: 'Task created' });
     } catch (err) {
       console.error(err);
       res.status(401).json({ message: 'Invalid token' });
     }
   });
+
+app.get('/api/tasks', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const result = await pool.query(
+      'SELECT * FROM taskstatusdb WHERE email = $1 ORDER BY date_created DESC',
+      [user.email]
+    );
+    
+    res.json({ tasks: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(401).json({ message: 'Invalid token' });
+  }
+});
+
+app.put('/api/tasks/update', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  const { task_name, status } = req.body;
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const email = user.email;
+
+    const allowedStatuses = ['incomplete', 'in_progress', 'complete', 'overdue', 'on_hold'];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    await pool.query(
+      `UPDATE taskstatusdb SET status = $1 WHERE email = $2 AND task_name = $3`,
+      [status, email, task_name]
+    );
+
+    res.status(200).json({ message: 'Status updated' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: 'Error updating task' });
+  }
+});
+
+app.post('/api/tasks/delete', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  const { task_name } = req.body;
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const email = user.email;
+
+    await pool.query(
+      `DELETE FROM taskstatusdb WHERE email = $1 AND task_name = $2`,
+      [email, task_name]
+    );
+    
+
+    res.status(200).json({ message: 'Task deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: 'Error deleting task' });
+  }
+});
+
+app.put('/api/tasks/edit', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  const { original_name, new_name, due_date } = req.body;
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const email = user.email;
+
+    await pool.query(
+      `UPDATE taskstatusdb SET task_name = $1, due_date = $2 WHERE email = $3 AND task_name = $4`,
+      [new_name, due_date || null, email, original_name]
+    );
+
+    res.status(200).json({ message: 'Task updated' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: 'Error editing task' });
+  }
+});
+
   
 // Start server
 const PORT = process.env.PORT || 5000;
