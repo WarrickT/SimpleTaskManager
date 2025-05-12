@@ -2,8 +2,8 @@ interface NavItemProps {
     icon: React.ReactNode;
     label: string;
     active?: boolean;
-  }
-  
+}
+
 export function NavItem({ icon, label, active = false }: NavItemProps) {
     return (
         <div
