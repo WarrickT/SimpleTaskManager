@@ -39,7 +39,9 @@ app.get('/auth/google/callback',
     const token = req.user.token;
     res.redirect(`http://localhost:5173/dashboard?token=${token}`);
   }
-);app.post('/api/tasks', async (req, res) => {
+);
+
+app.post('/api/tasks', async (req, res) => {
     const authHeader = req.headers.authorization;
     const token = authHeader?.split(' ')[1];
   
@@ -64,6 +66,46 @@ app.get('/auth/google/callback',
       res.status(401).json({ message: 'Invalid token' });
     }
   });
+
+app.get('/api/tasks', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const result = await pool.query(
+      'SELECT * FROM tasks WHERE user_email = $1 ORDER BY id DESC',
+      [user.email]
+    );
+    res.json({ tasks: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(401).json({ message: 'Invalid token' });
+  }
+});
+
+app.put('/api/tasks/update', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token' });
+  const {title, completed} = req.body;
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    await pool.query(
+      'UPDATE tasks SET completed = $1 WHERE user_email = $2 AND title = $3 ',
+      [completed, user.email, title]
+    );
+    res.status(200).json({ message: 'Task updated' });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: 'Error updating task' });
+  }
+
+});
   
 // Start server
 const PORT = process.env.PORT || 5000;

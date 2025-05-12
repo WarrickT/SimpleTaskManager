@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+
+type Task = {
+  id: number;
+  title: string;
+  completed: boolean;
+};
+
+
 const Dashboard = () => {
   const [params] = useSearchParams();
-  const [tasks, setTasks] = useState([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [newTask, setNewTask] = useState('');
 
   useEffect(() => {
@@ -42,6 +50,45 @@ const Dashboard = () => {
     setNewTask('');
     fetchTasks(); // Refresh list
   };
+  
+  const handleCompleteTask = async(title: string, completed: boolean) => {
+    const token = localStorage.getItem('token');
+    const newCompleted = !completed;
+    console.log(newCompleted);
+
+    try{
+      const res = await fetch('http://localhost:5000/api/tasks/update', {
+      method: 'PUT', 
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        title, 
+        completed: newCompleted
+      })
+    });
+
+      if (res.ok){
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.title === title ? {...task, completed: newCompleted} :task
+          )
+        );
+        
+      }
+      
+
+
+    }
+    catch(err){
+      console.log("We have an error", err);
+    }
+    
+
+    
+
+  }
 
   return (
     <div>
@@ -58,7 +105,12 @@ const Dashboard = () => {
       <ul>
         {tasks.map((task: any) => (
           <li key={task.id}>
-            {task.title} - {task.completed ? '✅' : '❌'}
+            <input
+              type = "checkbox"
+              checked = {task.completed ?? false}
+              onChange = {() => handleCompleteTask(task.title, task.completed)}
+            />
+            {task.title}
           </li>
         ))}
       </ul>
