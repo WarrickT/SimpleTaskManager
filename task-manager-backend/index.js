@@ -38,24 +38,27 @@ async function updateUserStats(email) {
   );
 }
 
-// Middleware
-//Allowing frontend to access backend
+async function autoUpdateOverdueTasks(email) {
+  const today = new Date().toISOString().split('T')[0];
+  await pool.query(
+    `UPDATE taskstatusdb SET status = 'overdue'
+     WHERE email = $1 AND due_date < $2 AND status != 'overdue'`,
+    [email, today]
+  );
+}
+
 app.use(cors({
   origin: 'http://localhost:5173', 
-  //Change back to https://simpletaskmanager-frontend.onrender.com
   credentials: true
 }));
 app.use(cookieParser());
 app.use(passport.initialize());
-app.use(express.json()); // ⬅ Add this near top to parse JSON bodies
+app.use(express.json());
 
-
-// Test route
 app.get('/', (req, res) => {
   res.send('Backend running');
 });
 
-// Auth routes
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
@@ -63,56 +66,46 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
   passport.authenticate('google', { session: false }),
   (req, res) => {
-    // Send JWT token to frontend via redirect
     const token = req.user.token;
     res.redirect(`http://localhost:5173/dashboard?token=${token}`);
-    //change to https://simpletaskmanager-frontend.onrender.com
-    //http://localhost:5173
   }
 );
 
 app.post('/api/tasks', async (req, res) => {
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.split(' ')[1];
-  
-    if (!token) return res.status(401).json({ message: 'No token' });
-  
-    try {
-      const user = jwt.verify(token, process.env.JWT_SECRET);
-      const { task_name, due_date, description } = req.body;
-  
-      if (!task_name || typeof task_name !== 'string') {
-        return res.status(400).json({ message: 'Invalid task title' });
-      }
-  
-      await pool.query(
-        `INSERT INTO taskstatusdb (email, task_name, status, due_date, description, date_created)
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [user.email, task_name, 'incomplete', due_date, description || null]
-      );
-      await updateUserStats(user.email);
-
-        
-      res.status(201).json({ message: 'Task created' });
-    } catch (err) {
-      console.error(err);
-      res.status(401).json({ message: 'Invalid token' });
-    }
-  });
-
-app.get('/api/tasks', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
-
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token' });
 
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET);
+    const { task_name, due_date, description } = req.body;
+    if (!task_name || typeof task_name !== 'string') {
+      return res.status(400).json({ message: 'Invalid task title' });
+    }
+    await pool.query(
+      `INSERT INTO taskstatusdb (email, task_name, status, due_date, description, date_created)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [user.email, task_name, 'incomplete', due_date, description || null]
+    );
+    await autoUpdateOverdueTasks(user.email);
+    await updateUserStats(user.email);
+    res.status(201).json({ message: 'Task created' });
+  } catch (err) {
+    console.error(err);
+    res.status(401).json({ message: 'Invalid token' });
+  }
+});
+
+app.get('/api/tasks', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    await autoUpdateOverdueTasks(user.email);
     const result = await pool.query(
       'SELECT * FROM taskstatusdb WHERE email = $1 ORDER BY date_created DESC',
       [user.email]
     );
-    
     res.json({ tasks: result.rows });
   } catch (err) {
     console.error(err);
@@ -121,31 +114,21 @@ app.get('/api/tasks', async (req, res) => {
 });
 
 app.put('/api/tasks/update', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
-
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token' });
 
   const { task_name, status } = req.body;
+  if (status === 'overdue') return res.status(400).json({ message: 'Cannot manually set status to overdue' });
 
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET);
-    const email = user.email;
-
-    const allowedStatuses = ['incomplete', 'in_progress', 'complete', 'overdue', 'on_hold'];
-
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
-    }
-
     await pool.query(
       `UPDATE taskstatusdb SET status = $1 WHERE email = $2 AND task_name = $3`,
-      [status, email, task_name]
+      [status, user.email, task_name]
     );
+    await autoUpdateOverdueTasks(user.email);
     await updateUserStats(user.email);
-
     res.status(200).json({ message: 'Status updated' });
-
   } catch (err) {
     console.error(err);
     res.status(400).json({ message: 'Error updating task' });
@@ -153,23 +136,19 @@ app.put('/api/tasks/update', async (req, res) => {
 });
 
 app.post('/api/tasks/delete', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
-
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token' });
 
   const { task_name } = req.body;
 
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET);
-    const email = user.email;
-
     await pool.query(
       `DELETE FROM taskstatusdb WHERE email = $1 AND task_name = $2`,
-      [email, task_name]
+      [user.email, task_name]
     );
+    await autoUpdateOverdueTasks(user.email);
     await updateUserStats(user.email);
-
     res.status(200).json({ message: 'Task deleted' });
   } catch (err) {
     console.error(err);
@@ -178,22 +157,33 @@ app.post('/api/tasks/delete', async (req, res) => {
 });
 
 app.put('/api/tasks/edit', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader?.split(' ')[1];
-
+  const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token' });
 
-  const { original_name, new_name, due_date } = req.body;
+  const { original_name, new_name, due_date, description } = req.body;
 
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET);
     const email = user.email;
 
-    await pool.query(
-      `UPDATE taskstatusdb SET task_name = $1, due_date = $2 WHERE email = $3 AND task_name = $4`,
-      [new_name, due_date || null, email, original_name]
+    const result = await pool.query(
+      `SELECT status FROM taskstatusdb WHERE email = $1 AND task_name = $2`,
+      [email, original_name]
     );
 
+    const currentStatus = result.rows[0]?.status;
+    const newStatus = currentStatus === 'overdue' ? 'incomplete' : currentStatus;
+
+    await pool.query(
+      `UPDATE taskstatusdb 
+       SET task_name = $1, due_date = $2, description = $3, status = $4 
+       WHERE email = $5 AND task_name = $6`,
+      [new_name, due_date || null, description || null, newStatus, email, original_name]
+    );
+    
+
+    await autoUpdateOverdueTasks(email);
+    await updateUserStats(email);
     res.status(200).json({ message: 'Task updated' });
   } catch (err) {
     console.error(err);
@@ -209,7 +199,6 @@ app.get('/api/user-stats', async (req, res) => {
     const user = jwt.verify(token, process.env.JWT_SECRET);
     const result = await pool.query('SELECT * FROM user_statistics WHERE username = $1', [user.email]);
     if (result.rows.length === 0) return res.json({ message: 'No stats yet', ...defaultStats });
-
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -225,6 +214,5 @@ const defaultStats = {
   on_hold: 0,
 };
 
-// Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
