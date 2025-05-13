@@ -11,6 +11,33 @@ require('./auth/google'); // Load the Passport strategy
 
 const app = express();
 
+async function updateUserStats(email) {
+  const statuses = ['incomplete', 'in_progress', 'complete', 'overdue', 'on_hold'];
+  const counts = {};
+
+  for (const status of statuses) {
+    const res = await pool.query(
+      'SELECT COUNT(*) FROM taskstatusdb WHERE email = $1 AND status = $2',
+      [email, status]
+    );
+    counts[status] = parseInt(res.rows[0].count);
+  }
+
+  // Upsert user_statistics
+  await pool.query(
+    `INSERT INTO user_statistics (username, incomplete, in_progress, complete, overdue, on_hold)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (username)
+     DO UPDATE SET 
+       incomplete = $2,
+       in_progress = $3,
+       complete = $4,
+       overdue = $5,
+       on_hold = $6`,
+    [email, counts.incomplete, counts.in_progress, counts.complete, counts.overdue, counts.on_hold]
+  );
+}
+
 // Middleware
 //Allowing frontend to access backend
 app.use(cors({
@@ -63,6 +90,8 @@ app.post('/api/tasks', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         [user.email, task_name, 'incomplete', due_date, description || null]
       );
+      await updateUserStats(user.email);
+
         
       res.status(201).json({ message: 'Task created' });
     } catch (err) {
@@ -113,6 +142,7 @@ app.put('/api/tasks/update', async (req, res) => {
       `UPDATE taskstatusdb SET status = $1 WHERE email = $2 AND task_name = $3`,
       [status, email, task_name]
     );
+    await updateUserStats(user.email);
 
     res.status(200).json({ message: 'Status updated' });
 
@@ -138,7 +168,7 @@ app.post('/api/tasks/delete', async (req, res) => {
       `DELETE FROM taskstatusdb WHERE email = $1 AND task_name = $2`,
       [email, task_name]
     );
-    
+    await updateUserStats(user.email);
 
     res.status(200).json({ message: 'Task deleted' });
   } catch (err) {
@@ -171,7 +201,30 @@ app.put('/api/tasks/edit', async (req, res) => {
   }
 });
 
-  
+app.get('/api/user-stats', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token' });
+
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const result = await pool.query('SELECT * FROM user_statistics WHERE username = $1', [user.email]);
+    if (result.rows.length === 0) return res.json({ message: 'No stats yet', ...defaultStats });
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error fetching stats' });
+  }
+});
+
+const defaultStats = {
+  incomplete: 0,
+  in_progress: 0,
+  complete: 0,
+  overdue: 0,
+  on_hold: 0,
+};
+
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
