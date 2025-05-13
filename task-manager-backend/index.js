@@ -14,7 +14,7 @@ const app = express();
 // Middleware
 //Allowing frontend to access backend
 app.use(cors({
-  origin: 'http://localhost:5173', 
+  origin: 'https://simpletaskmanager-frontend.onrender.com', 
   credentials: true
 }));
 app.use(cookieParser());
@@ -37,7 +37,7 @@ app.get('/auth/google/callback',
   (req, res) => {
     // Send JWT token to frontend via redirect
     const token = req.user.token;
-    res.redirect(`http://localhost:5173/dashboard?token=${token}`);
+    res.redirect(`https://simpletaskmanager-frontend.onrender.com/dashboard?token=${token}`);
   }
 );
 
