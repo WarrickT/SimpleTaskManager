@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import Sidebar from '../components/Sidebar';
+import AnimatedHeader from '../components/AnimatedHeader';
+import TodayPanel from '../components/TodayPanel';
+import UserStatsChart from '../components/UserStatsChart';
+
 
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
@@ -40,6 +43,12 @@ const Dashboard = () => {
   const [editDueDate, setEditDueDate] = useState('');
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [userStats, setUserStats] = useState(null);
+  const [showToast, setShowToast] = useState(false);
+  const [errorToast, setErrorToast] = useState(false);
+  const [lastMovedStatus, setLastMovedStatus] = useState<string | null>(null);
+  const [editDescription, setEditDescription] = useState('');
+
 
 
 
@@ -53,6 +62,15 @@ const Dashboard = () => {
     }
   }, [params]);
 
+  const fetchStats = async () => {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/user-stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    setUserStats(data);
+  };
+
   const fetchTasks = async () => {
     const token = localStorage.getItem('token');
     const res = await fetch(`${import.meta.env.VITE_API_URL}/api/tasks`, {
@@ -64,14 +82,18 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchTasks();
+    fetchStats();
+
   }, []);
 
   const handleAddTask = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
   
-    const today = new Date().toISOString().split('T')[0];
-  
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: 'America/Toronto',
+    });
+      
     if (!newTask.trim() || !newTaskDueDate.trim()) {
       alert('Please enter both a task name and a due date.');
       return;
@@ -94,12 +116,15 @@ const Dashboard = () => {
         description: newTaskDesc,
       }),
           });
-  
+    console.log("Submitting due date:", newTaskDueDate);
+
     setNewTask('');
     setNewTaskDueDate('');
     setNewTaskDesc('');
     setShowModal(false);
     fetchTasks();
+    await fetchStats();
+
   };
   
   const handleEditTask = async () => {
@@ -116,11 +141,15 @@ const Dashboard = () => {
         original_name: editModalTask.task_name,
         new_name: editTaskName,
         due_date: editDueDate || null,
+        description: editDescription,
       }),
+      
     });
 
     setEditModalTask(null);
     fetchTasks();
+    await fetchStats();
+
   };
 
   const confirmDeleteTask = async () => {
@@ -140,8 +169,14 @@ const Dashboard = () => {
   
     setTaskToDelete(null);
     fetchTasks();
+    await fetchStats();
+
   };
   
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    window.location.href = '/';
+  };
   
   
 
@@ -159,6 +194,12 @@ const Dashboard = () => {
     const taskId = active.id.toString();
     const newStatus = over.id.toString() as Task['status'];
     if (!statuses.includes(newStatus)) return;
+    if (newStatus === 'overdue') {
+      setErrorToast(true);
+      setTimeout(() => setErrorToast(false), 3000);
+      return;
+    }
+    
 
     const token = localStorage.getItem('token');
     await fetch(`${import.meta.env.VITE_API_URL}/api/tasks/update`, {
@@ -175,72 +216,113 @@ const Dashboard = () => {
         task.task_name === taskId ? { ...task, status: newStatus } : task
       )
     );
-    setTimeout(() => fetchTasks(), 300); // still syncs with backend
+    setLastMovedStatus(newStatus);
+    setShowToast(true);
+    setTimeout(() => {
+      setShowToast(false);
+      setLastMovedStatus(null);
+    }, 3000);
+
+    setTimeout(() => fetchTasks(), 300);
+    fetchStats();
+
       };
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
+    <div className="flex h-screen bg-background text-lightText font-sans">
+    <TodayPanel
+  tasks={tasks}
+  onLogout={handleLogout}
+  onEditTask={(task) => {
+    setEditModalTask(task);
+    setEditTaskName(task.task_name);
+    setEditDueDate(task.due_date || '');
+    setEditDescription(task.description || '');
+  }}
+/>
+
       <main className="flex-1 p-8 overflow-y-auto">
 
         {/* Add Modal */}
+        {showToast && lastMovedStatus && (
+          <div className="fixed top-6 right-6 z-50 px-6 py-4 text-lg rounded-xl bg-green-600 text-white shadow-lg opacity-0 animate-fadeInOut">
+            ✅ Successfully marked task as <strong>{`'${lastMovedStatus.replace('_', ' ')}'`}</strong>
+          </div>
+        )}
+
+        {errorToast && (
+        <div className="fixed top-6 right-6 z-50 px-6 py-4 text-lg rounded-xl bg-red-600 text-white shadow-lg opacity-0 animate-fadeInOut">
+          ❌ Cannot manually make task overdue
+        </div>
+        )}
+
         {showModal && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
+            <div className="bg-surface text-lightText p-6 rounded shadow-lg w-full max-w-md">
+
               <h3 className="text-lg font-semibold mb-4">Add New Task</h3>
               <input
                 type="text"
                 placeholder="Task name"
-                className="w-full mb-2 p-2 border rounded"
+                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
                 value={newTask}
                 onChange={(e) => setNewTask(e.target.value)}
               />
               <h3 className="text-lg font-semibold mb-4">Set Due Date</h3>
               <p className="text-sm text-gray-500 mb-1">
-              Today is <strong>{new Date().toLocaleDateString()}</strong>
+              Today is <strong>{new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}</strong>
               </p>
 
               <input
                 type="date"
-                className="w-full mb-4 p-1 border rounded"
+                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
                 value={newTaskDueDate}
-                min={new Date().toLocaleDateString('en-CA')}
+                min={new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}
                 onChange={(e) => setNewTaskDueDate(e.target.value)}
               />
               <textarea
               placeholder="Task description (optional)"
-              className="w-full mb-4 p-2 border rounded"
+              className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
               value={newTaskDesc}
               onChange={(e) => setNewTaskDesc(e.target.value)}
             />
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowModal(false)} className="px-4 py-2 border rounded">Cancel</button>
-                <button onClick={handleAddTask} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Add Task</button>
+                <button onClick={handleAddTask} className="bg-primary text-white px-4 py-2 rounded hover:bg-cyan-600">Add Task</button>
               </div>
             </div>
           </div>
         )}
 
+
         {/* Edit Modal */}
         {editModalTask && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
+            <div className="bg-surface text-lightText p-6 rounded shadow-lg w-full max-w-md">
+
               <h3 className="text-lg font-semibold mb-4">Edit Task</h3>
               <input
                 type="text"
-                className="w-full mb-2 p-2 border rounded"
+                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
                 value={editTaskName}
                 onChange={(e) => setEditTaskName(e.target.value)}
               />
               <input
                 type="date"
-                className="w-full mb-4 p-2 border rounded"
+                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
                 value={editDueDate}
                 onChange={(e) => setEditDueDate(e.target.value)}
               />
+              <textarea
+                placeholder="Task description"
+                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
+
               <div className="flex justify-end gap-2">
                 <button onClick={() => setEditModalTask(null)} className="px-4 py-2 border rounded">Cancel</button>
-                <button onClick={handleEditTask} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Save Changes</button>
+                <button onClick={handleEditTask} className="bg-primary text-white px-4 py-2 rounded hover:bg-cyan-600">Save Changes</button>
               </div>
             </div>
           </div>
@@ -248,7 +330,7 @@ const Dashboard = () => {
 
       {taskToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded shadow-lg w-full max-w-sm">
+          <div className="bg-surface text-lightText p-6 rounded shadow-lg w-full max-w-sm">
             <h3 className="text-lg font-semibold mb-4 text-red-600">Delete Task</h3>
             <p className="mb-4">Are you sure you want to delete <strong>{taskToDelete}</strong>?</p>
             <div className="flex justify-end gap-2">
@@ -260,7 +342,7 @@ const Dashboard = () => {
               </button>
               <button
                 onClick={confirmDeleteTask}
-                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                className="bg-danger text-white px-4 py-2 rounded hover:bg-red-600"
               >
                 Delete
               </button>
@@ -270,9 +352,27 @@ const Dashboard = () => {
       )}
 
 
-        <h2 className="text-2xl font-semibold mb-4">Welcome to your task manager!</h2>
+        <div className="flex justify-between items-start flex-wrap gap-6 mb-10">
+          {/* Left: Header (always left-aligned) */}
+          <div className="flex-1 flex items-center justify-start min-h-[450px]">
+          <div className="max-w-xl">
+            <AnimatedHeader />
+          </div>
+        </div>
 
+
+          {/* Right: Reserve space even before chart is loaded */}
+          <div className="w-[700px] min-w-[600px] h-[450px] flex items-center justify-center">
+            {userStats ? (
+              <UserStatsChart data={userStats} />
+            ) : (
+              <div className="text-mutedText italic">Loading chart...</div>
+            )}
+          </div>
+        </div>
         {/* Task Input */}
+        <div className="bg-blue-900/10 p-4 rounded-xl">
+
         <div className="mb-4">
           <input
             type="text"
@@ -283,7 +383,7 @@ const Dashboard = () => {
           />
           <button
             onClick={() => setShowModal(true)}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            className="bg-primary text-white px-4 py-2 rounded hover:bg-cyan-600"
           >
             Add Task
           </button>
@@ -305,6 +405,7 @@ const Dashboard = () => {
                 setEditModalTask={setEditModalTask}
                 setEditTaskName={setEditTaskName}
                 setEditDueDate={setEditDueDate}
+                setEditDescription={setEditDescription}
                 menuOpenId={menuOpenId}
                 setMenuOpenId={setMenuOpenId}
                 setTaskToDelete={setTaskToDelete}
@@ -313,30 +414,35 @@ const Dashboard = () => {
           </div>
 
           <DragOverlay>
-          {activeTask && (
-            <div
-              className={`p-2 ${cardStyles[activeTask.status]} rounded shadow mt-2 w-[250px] transition-all duration-200 ease-in-out`}
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-medium">{activeTask.task_name}</p>
-                  {activeTask.description && (
-                    <p className="text-sm text-gray-500 mt-1 line-clamp-3">
-                      {activeTask.description}
+            {activeTask && (
+              <div
+                className={`p-4 ${cardStyles[activeTask.status]} rounded shadow mt-2 w-[280px] transition-all duration-200 ease-in-out`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-2xl font-bold text-lightText">{activeTask.task_name}</p>
+
+                    {activeTask.description && (
+                      <p className="text-base bg-purple-500 bg-opacity-30 text-purple-100 mt-3 p-3 rounded-md line-clamp-3 font-medium">
+                        {activeTask.description}
+                      </p>
+                    )}
+
+                    {activeTask.due_date && (
+                      <p className="text-sm inline-block mt-4 bg-primary text-white px-4 py-1.5 rounded-full">
+                    Due: {new Date(activeTask.due_date + 'T00:00:00').toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}
                     </p>
-                  )}
-                  {activeTask.due_date && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      Due: {new Date(activeTask.due_date).toLocaleDateString()}
-                    </p>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </DragOverlay>
+            )}
+          </DragOverlay>
+
 
         </DndContext>
+        </div>
+
       </main>
     </div>
   );
@@ -351,6 +457,7 @@ const DroppableColumn = ({
   setEditModalTask,
   setEditTaskName,
   setEditDueDate,
+  setEditDescription,
   menuOpenId,
   setMenuOpenId,
   setTaskToDelete,
@@ -360,6 +467,7 @@ const DroppableColumn = ({
   setEditModalTask: (task: Task) => void;
   setEditTaskName: (s: string) => void;
   setEditDueDate: (s: string) => void;
+  setEditDescription: (s: string) => void; 
   menuOpenId: string | null;
   setMenuOpenId: (id: string | null) => void;
   setTaskToDelete: (taskName: string) => void;
@@ -380,6 +488,7 @@ const DroppableColumn = ({
           name={task.task_name}
           status={task.status}
           onEdit={() => {
+            setEditDescription(task.description || '');
             setEditModalTask(task);
             setEditTaskName(task.task_name);
             setEditDueDate(task.due_date || '');
@@ -392,7 +501,6 @@ const DroppableColumn = ({
     </div>
   );
 };
-
 
 const DraggableCard = ({
   id,
@@ -407,7 +515,7 @@ const DraggableCard = ({
 }: {
   id: string;
   name: string;
-  description?: string;  
+  description?: string;
   due_date?: string;
   status: 'incomplete' | 'in_progress' | 'complete' | 'overdue' | 'on_hold';
   onEdit: () => void;
@@ -419,33 +527,34 @@ const DraggableCard = ({
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    opacity: isDragging ? 0 : 1, 
+    opacity: isDragging ? 0 : 1,
     transition: 'opacity 0.0s ease',
   };
   const showMenu = menuOpenId === id;
 
   return (
-        <div
+    <div
       ref={setNodeRef}
       style={style}
-      className={`relative ${cardStyles[status]} rounded shadow transition-all duration-200 ease-in-out`}
-      >
+      className={`relative ${cardStyles[status]} rounded shadow transition-all duration-200 ease-in-out p-4`}
+    >
+      <div {...attributes} {...listeners} className="cursor-grab select-none">
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="text-2xl font-bold text-lightText">{name}</p>
 
-      <div {...attributes} {...listeners} className="p-2 cursor-grab select-none">
-        <div className="flex justify-between items-center">
-        <div>
-        <p className="font-medium">{name}</p>
-        {description && (
-          <p className="text-sm text-gray-500 mt-1 line-clamp-3">
-            {description}
-          </p>
-        )}
-        {due_date && (
-          <p className="text-xs text-gray-400 mt-1">Due: {new Date(due_date).toLocaleDateString()}</p>
-        )}
+            {description && (
+              <p className="text-base bg-purple-500 bg-opacity-30 text-purple-100 mt-3 p-3 rounded-md line-clamp-3 font-medium">
+                {description}
+              </p>
+            )}
 
-  
-</div>
+            {due_date && (
+              <p className="text-sm inline-block mt-4 bg-primary text-white px-4 py-1.5 rounded-full">
+                Due: {new Date(due_date + 'T00:00:00').toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}
+                </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -455,7 +564,7 @@ const DraggableCard = ({
           e.preventDefault();
           setMenuOpenId(showMenu ? null : id);
         }}
-        className="absolute top-2 right-2 text-gray-500 hover:text-black"
+        className="absolute top-3 right-3 text-mutedText hover:text-white"
       >
         ⋮
       </button>
@@ -463,12 +572,15 @@ const DraggableCard = ({
       {showMenu && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute right-2 top-10 bg-white border rounded shadow z-50"
+          className="absolute right-3 top-12 bg-surface border border-soft text-lightText rounded shadow z-50"
         >
-          <button onClick={onEdit} className="block w-full text-left px-4 py-2 hover:bg-gray-100">
+          <button onClick={onEdit} className="block w-full text-left px-5 py-3 hover:bg-background">
             Edit
           </button>
-          <button onClick={onDelete} className="block w-full text-left px-4 py-2 hover:bg-red-100 text-red-500">
+          <button
+            onClick={onDelete}
+            className="block w-full text-left px-5 py-3 hover:bg-red-100 text-red-500"
+          >
             Delete
           </button>
         </div>
@@ -477,18 +589,20 @@ const DraggableCard = ({
   );
 };
 
+
 const statusStyles: Record<string, string> = {
-  incomplete: 'bg-orange-50',
-  in_progress: 'bg-yellow-50',
-  complete: 'bg-green-50',
-  overdue: 'bg-red-50',
-  on_hold: 'bg-gray-100',
+  incomplete: 'bg-yellow-900/40',
+  in_progress: 'bg-orange-900/40',
+  complete: 'bg-emerald-700/30',
+  overdue: 'bg-red-900/40',
+  on_hold: 'bg-zinc-800/50',
 };
 
+
 const cardStyles: Record<string, string> = {
-  incomplete: 'bg-orange-100',
-  in_progress: 'bg-yellow-100',
-  complete: 'bg-green-100',
-  overdue: 'bg-red-100',
-  on_hold: 'bg-gray-200',
+  incomplete: 'bg-card border border-soft',
+  in_progress: 'bg-card border border-soft',
+  complete: 'bg-card border border-soft',
+  overdue: 'bg-card border border-soft',
+  on_hold: 'bg-card border border-soft',
 };
