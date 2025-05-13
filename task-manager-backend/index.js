@@ -48,7 +48,7 @@ async function autoUpdateOverdueTasks(email) {
 }
 
 app.use(cors({
-  origin: 'http://localhost:5173', 
+  origin: ['http://localhost:5173', 'https://simpletaskmanager-frontend.onrender.com'], 
   credentials: true
 }));
 app.use(cookieParser());
@@ -67,8 +67,9 @@ app.get('/auth/google/callback',
   passport.authenticate('google', { session: false }),
   (req, res) => {
     const token = req.user.token;
-    res.redirect(`http://localhost:5173/dashboard?token=${token}`);
-  }
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${redirectBase}/dashboard?token=${token}`);
+      }
 );
 
 app.post('/api/tasks', async (req, res) => {
