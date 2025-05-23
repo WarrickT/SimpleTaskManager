@@ -11,12 +11,6 @@ import UserStatsChart from '../components/UserStatsChart';
 
 
 
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import {
-  PointerSensor,
-  useSensor,
-  useSensors
-} from '@dnd-kit/core';
 
 
 // Task type
@@ -37,8 +31,8 @@ const Dashboard = () => {
   const [newTask, setNewTask] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
-  const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  //const [activeTask, setActiveTask] = useState<Task | null>(null);
+  //const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [editModalTask, setEditModalTask] = useState<Task | null>(null);
   const [editTaskName, setEditTaskName] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
@@ -53,7 +47,7 @@ const Dashboard = () => {
   const [teamName, setTeamName] = useState('');
   const [teamPassword, setTeamPassword] = useState('');
   const [isJoining, setIsJoining] = useState(true);
-  const [teamId, setTeamId] = useState<number | null>(null);
+  const [__teamId, setTeamId] = useState<number | null>(null);
   const [teams, setTeams] = useState([]);
 
   const [currentMode, setCurrentMode] = useState<'personal' | 'team'>('personal');
@@ -72,8 +66,8 @@ const Dashboard = () => {
   };
 
 
-  const statuses: Task['status'][] = ['incomplete', 'in_progress', 'complete', 'overdue', 'on_hold'];
-  const sensors = useSensors(useSensor(PointerSensor));
+  // const statuses: Task['status'][] = ['incomplete', 'in_progress', 'complete', 'overdue', 'on_hold'];
+  // const sensors = useSensors(useSensor(PointerSensor));
 
   useEffect(() => {
     const token = params.get('token');
@@ -268,53 +262,53 @@ const Dashboard = () => {
   
   
 
-  const handleDragStart = (event: DragStartEvent) => {
-    const draggedId = event.active.id;
-    const found = tasks.find((task) => task.task_name === draggedId);
-    if (found) setActiveTask(found);
-  };
+  // const handleDragStart = (event: DragStartEvent) => {
+  //   const draggedId = event.active.id;
+  //   const found = tasks.find((task) => task.task_name === draggedId);
+  //   if (found) setActiveTask(found);
+  // };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveTask(null);
-    if (!over || !active || active.id === over.id) return;
+  // const handleDragEnd = async (event: DragEndEvent) => {
+  //   const { active, over } = event;
+  //   setActiveTask(null);
+  //   if (!over || !active || active.id === over.id) return;
 
-    const taskId = active.id.toString();
-    const newStatus = over.id.toString() as Task['status'];
-    if (!statuses.includes(newStatus)) return;
-    if (newStatus === 'overdue') {
-      setErrorToast(true);
-      setTimeout(() => setErrorToast(false), 3000);
-      return;
-    }
+  //   const taskId = active.id.toString();
+  //   const newStatus = over.id.toString() as Task['status'];
+  //   if (!statuses.includes(newStatus)) return;
+  //   if (newStatus === 'overdue') {
+  //     setErrorToast(true);
+  //     setTimeout(() => setErrorToast(false), 3000);
+  //     return;
+  //   }
     
 
-    const token = localStorage.getItem('token');
-    await fetch(`${import.meta.env.VITE_API_URL}/api/tasks/update`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ task_name: taskId, status: newStatus }),
-    });
+  //   const token = localStorage.getItem('token');
+  //   await fetch(`${import.meta.env.VITE_API_URL}/api/tasks/update`, {
+  //     method: 'PUT',
+  //     headers: {
+  //       'Content-Type': 'application/json',
+  //       Authorization: `Bearer ${token}`,
+  //     },
+  //     body: JSON.stringify({ task_name: taskId, status: newStatus }),
+  //   });
 
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.task_name === taskId ? { ...task, status: newStatus } : task
-      )
-    );
-    setLastMovedStatus(newStatus);
-    setShowToast(true);
-    setTimeout(() => {
-      setShowToast(false);
-      setLastMovedStatus(null);
-    }, 3000);
+  //   setTasks((prev) =>
+  //     prev.map((task) =>
+  //       task.task_name === taskId ? { ...task, status: newStatus } : task
+  //     )
+  //   );
+  //   setLastMovedStatus(newStatus);
+  //   setShowToast(true);
+  //   setTimeout(() => {
+  //     setShowToast(false);
+  //     setLastMovedStatus(null);
+  //   }, 3000);
 
-    setTimeout(() => fetchTasks(), 300);
-    fetchStats();
+  //   setTimeout(() => fetchTasks(), 300);
+  //   fetchStats();
 
-      };
+  //     };
 
   return (
     <div className="flex h-screen bg-background text-lightText font-sans">
