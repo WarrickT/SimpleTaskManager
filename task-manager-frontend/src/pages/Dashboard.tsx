@@ -1,22 +1,23 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import AnimatedHeader from '../components/AnimatedHeader';
+import DeleteConfirmModal from '../components/DeleteConfirmModal';
+import EditTaskModal from '../components/EditTaskModal';
+import TaskBoard from '../components/TaskBoard';
+import TeamModal from '../components/TeamModal';
+import Toast from '../components/Toast';
 import TodayPanel from '../components/TodayPanel';
 import UserStatsChart from '../components/UserStatsChart';
 
 
+
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
-  DndContext,
-  DragOverlay,
   PointerSensor,
-  closestCorners,
   useSensor,
-  useSensors,
+  useSensors
 } from '@dnd-kit/core';
 
-import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 
 // Task type
 type Task = {
@@ -48,8 +49,27 @@ const Dashboard = () => {
   const [errorToast, setErrorToast] = useState(false);
   const [lastMovedStatus, setLastMovedStatus] = useState<string | null>(null);
   const [editDescription, setEditDescription] = useState('');
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [teamName, setTeamName] = useState('');
+  const [teamPassword, setTeamPassword] = useState('');
+  const [isJoining, setIsJoining] = useState(true);
+  const [teamId, setTeamId] = useState<number | null>(null);
+  const [teams, setTeams] = useState([]);
 
+  const [currentMode, setCurrentMode] = useState<'personal' | 'team'>('personal');
+  const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null);
+  const navigate = useNavigate();
 
+  const handleSelectTeam = (teamId: number) => {
+
+    navigate(`/team/${teamId}`);
+
+  };
+
+  const handleSelectPersonal = () => {
+    setCurrentMode('personal');
+    setSelectedTeamId(null);
+  };
 
 
   const statuses: Task['status'][] = ['incomplete', 'in_progress', 'complete', 'overdue', 'on_hold'];
@@ -73,18 +93,21 @@ const Dashboard = () => {
 
   const fetchTasks = async () => {
     const token = localStorage.getItem('token');
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/tasks`, {
+    if (!token) return;
+
+    const endpoint =
+      currentMode === 'personal'
+        ? '/api/tasks'
+        : `/api/teams/${selectedTeamId}/tasks`;
+
+    const res = await fetch(`${import.meta.env.VITE_API_URL}${endpoint}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+
     const data = await res.json();
-    setTasks(data.tasks);
+    setTasks(data.tasks || []);
   };
 
-  useEffect(() => {
-    fetchTasks();
-    fetchStats();
-
-  }, []);
 
   const handleAddTask = async () => {
     const token = localStorage.getItem('token');
@@ -114,8 +137,9 @@ const Dashboard = () => {
         task_name: newTask,
         due_date: newTaskDueDate,
         description: newTaskDesc,
+        team_id: currentMode === 'team' ? selectedTeamId : null,  
       }),
-          });
+    });
     console.log("Submitting due date:", newTaskDueDate);
 
     setNewTask('');
@@ -151,6 +175,70 @@ const Dashboard = () => {
     await fetchStats();
 
   };
+
+  const handleStatusChange = async (taskName: string, newStatus: Task['status']) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    if (newStatus === 'overdue') {
+      setErrorToast(true);
+      setTimeout(() => setErrorToast(false), 3000);
+      return;
+    }
+
+    await fetch(`${import.meta.env.VITE_API_URL}/api/tasks/update`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ task_name: taskName, status: newStatus }),
+    });
+
+    fetchTasks();
+    fetchStats();
+    setLastMovedStatus(newStatus);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3000);
+  };
+
+  const handleTeamSubmit = async () => {
+  const token = localStorage.getItem('token');
+  const endpoint = isJoining ? '/api/teams/join' : '/api/teams/create';
+
+  const res = await fetch(`${import.meta.env.VITE_API_URL}${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name: teamName, password: teamPassword }),
+  });
+
+  const data = await res.json();
+
+  if (res.ok) {
+    setTeamId(data.teamId);
+    localStorage.setItem('teamId', data.teamId);
+    setShowTeamModal(false);
+  } else {
+    alert(data.message || 'Something went wrong.');
+  }
+};
+
+  const fetchTeams = async () => {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/teams`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    setTeams(data.teams || []);
+  };
+
+  useEffect(() => {
+    fetchTasks();
+    fetchStats();
+    fetchTeams();
+  }, [currentMode, selectedTeamId]);
 
   const confirmDeleteTask = async () => {
     if (!taskToDelete) return;
@@ -231,8 +319,13 @@ const Dashboard = () => {
   return (
     <div className="flex h-screen bg-background text-lightText font-sans">
     <TodayPanel
-  tasks={tasks}
-  onLogout={handleLogout}
+    tasks={tasks}
+    onLogout={handleLogout}
+    teams={teams}
+    onSelectTeam={handleSelectTeam}
+    onSelectPersonal={handleSelectPersonal}
+
+  onManageTeams={() => setShowTeamModal(true)} 
   onEditTask={(task) => {
     setEditModalTask(task);
     setEditTaskName(task.task_name);
@@ -241,20 +334,25 @@ const Dashboard = () => {
   }}
 />
 
+
+
       <main className="flex-1 p-8 overflow-y-auto">
 
         {/* Add Modal */}
         {showToast && lastMovedStatus && (
-          <div className="fixed top-6 right-6 z-50 px-6 py-4 text-lg rounded-xl bg-green-600 text-white shadow-lg opacity-0 animate-fadeInOut">
-            ✅ Successfully marked task as <strong>{`'${lastMovedStatus.replace('_', ' ')}'`}</strong>
-          </div>
+          <Toast
+            type="success"
+            message={`Successfully marked task as '${lastMovedStatus.replace('_', ' ')}'`}
+          />
         )}
 
         {errorToast && (
-        <div className="fixed top-6 right-6 z-50 px-6 py-4 text-lg rounded-xl bg-red-600 text-white shadow-lg opacity-0 animate-fadeInOut">
-          ❌ Cannot manually make task overdue
-        </div>
+          <Toast
+            type="error"
+            message="Cannot manually make task overdue"
+          />
         )}
+
 
         {showModal && (
           <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
@@ -297,59 +395,40 @@ const Dashboard = () => {
 
         {/* Edit Modal */}
         {editModalTask && (
-          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-            <div className="bg-surface text-lightText p-6 rounded shadow-lg w-full max-w-md">
+      <EditTaskModal
+        taskName={editTaskName}
+        setTaskName={setEditTaskName}
+        dueDate={editDueDate}
+        setDueDate={setEditDueDate}
+        description={editDescription}
+        setDescription={setEditDescription}
+        onSave={handleEditTask}
+        onCancel={() => setEditModalTask(null)}
+      />
+    )}
 
-              <h3 className="text-lg font-semibold mb-4">Edit Task</h3>
-              <input
-                type="text"
-                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
-                value={editTaskName}
-                onChange={(e) => setEditTaskName(e.target.value)}
-              />
-              <input
-                type="date"
-                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
-                value={editDueDate}
-                onChange={(e) => setEditDueDate(e.target.value)}
-              />
-              <textarea
-                placeholder="Task description"
-                className="w-full mb-2 p-2 border border-soft bg-background text-lightText rounded"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-              />
+    {taskToDelete && (
+      <DeleteConfirmModal
+        taskName={taskToDelete}
+        onCancel={() => setTaskToDelete(null)}
+        onDelete={confirmDeleteTask}
+      />
+    )}
 
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setEditModalTask(null)} className="px-4 py-2 border rounded">Cancel</button>
-                <button onClick={handleEditTask} className="bg-primary text-white px-4 py-2 rounded hover:bg-cyan-600">Save Changes</button>
-              </div>
-            </div>
-          </div>
-        )}
 
-      {taskToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-surface text-lightText p-6 rounded shadow-lg w-full max-w-sm">
-            <h3 className="text-lg font-semibold mb-4 text-red-600">Delete Task</h3>
-            <p className="mb-4">Are you sure you want to delete <strong>{taskToDelete}</strong>?</p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setTaskToDelete(null)}
-                className="px-4 py-2 border rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDeleteTask}
-                className="bg-danger text-white px-4 py-2 rounded hover:bg-red-600"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        {showTeamModal && (
+        <TeamModal
+          teamName={teamName}
+          setTeamName={setTeamName}
+          password={teamPassword}
+          setPassword={setTeamPassword}
+          isJoining={isJoining}
+          setIsJoining={setIsJoining}
+          onSubmit={handleTeamSubmit}
+          onCancel={() => setShowTeamModal(false)}
+        />
       )}
+
 
 
         <div className="flex justify-between items-start flex-wrap gap-6 mb-10">
@@ -390,57 +469,18 @@ const Dashboard = () => {
         </div>
 
         {/* DnD Board */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragEnd={handleDragEnd}
-          onDragStart={handleDragStart}
-        >
-          <div className="grid grid-cols-5 gap-4">
-            {statuses.map((status) => (
-              <DroppableColumn
-                key={status}
-                id={status}
-                tasks={tasks.filter((task) => task.status === status)}
-                setEditModalTask={setEditModalTask}
-                setEditTaskName={setEditTaskName}
-                setEditDueDate={setEditDueDate}
-                setEditDescription={setEditDescription}
-                menuOpenId={menuOpenId}
-                setMenuOpenId={setMenuOpenId}
-                setTaskToDelete={setTaskToDelete}
-              />
-            ))}
-          </div>
+        <TaskBoard
+          tasks={tasks}
+          onStatusChange={handleStatusChange}
+          onEditTask={(task) => {
+            setEditModalTask(task);
+            setEditTaskName(task.task_name);
+            setEditDueDate(task.due_date || '');
+            setEditDescription(task.description || '');
+          }}
+          onDeleteTask={(taskName) => setTaskToDelete(taskName)}
+        />
 
-          <DragOverlay>
-            {activeTask && (
-              <div
-                className={`p-4 ${cardStyles[activeTask.status]} rounded shadow mt-2 w-[280px] transition-all duration-200 ease-in-out`}
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-2xl font-bold text-lightText">{activeTask.task_name}</p>
-
-                    {activeTask.description && (
-                      <p className="text-base bg-purple-500 bg-opacity-30 text-purple-100 mt-3 p-3 rounded-md line-clamp-3 font-medium">
-                        {activeTask.description}
-                      </p>
-                    )}
-
-                    {activeTask.due_date && (
-                      <p className="text-sm inline-block mt-4 bg-primary text-white px-4 py-1.5 rounded-full">
-                    Due: {new Date(activeTask.due_date + 'T00:00:00').toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}
-                    </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </DragOverlay>
-
-
-        </DndContext>
         </div>
 
       </main>
@@ -449,160 +489,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-
-// 💬 Droppable Column Component
-const DroppableColumn = ({
-  id,
-  tasks,
-  setEditModalTask,
-  setEditTaskName,
-  setEditDueDate,
-  setEditDescription,
-  menuOpenId,
-  setMenuOpenId,
-  setTaskToDelete,
-}: {
-  id: string;
-  tasks: Task[];
-  setEditModalTask: (task: Task) => void;
-  setEditTaskName: (s: string) => void;
-  setEditDueDate: (s: string) => void;
-  setEditDescription: (s: string) => void; 
-  menuOpenId: string | null;
-  setMenuOpenId: (id: string | null) => void;
-  setTaskToDelete: (taskName: string) => void;
-}) => {
-  const { setNodeRef } = useDroppable({ id });
-
-  return (
-    <div ref={setNodeRef}   className={`${statusStyles[id]} rounded-2xl p-4 min-h-[200px] shadow-sm space-y-4`}>
-      <h3 className="font-semibold capitalize mb-2">{id.replace('_', ' ')}</h3>
-      {[...tasks]
-        .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
-        .map((task) => (
-        <DraggableCard
-          key={task.task_name}
-          description={task.description}
-          due_date={task.due_date}
-          id={task.task_name}
-          name={task.task_name}
-          status={task.status}
-          onEdit={() => {
-            setEditDescription(task.description || '');
-            setEditModalTask(task);
-            setEditTaskName(task.task_name);
-            setEditDueDate(task.due_date || '');
-          }}
-          onDelete={() => setTaskToDelete(task.task_name)}
-          menuOpenId={menuOpenId}
-          setMenuOpenId={setMenuOpenId}
-        />
-      ))}
-    </div>
-  );
-};
-
-const DraggableCard = ({
-  id,
-  name,
-  description,
-  due_date,
-  status,
-  onEdit,
-  onDelete,
-  menuOpenId,
-  setMenuOpenId,
-}: {
-  id: string;
-  name: string;
-  description?: string;
-  due_date?: string;
-  status: 'incomplete' | 'in_progress' | 'complete' | 'overdue' | 'on_hold';
-  onEdit: () => void;
-  onDelete: () => void;
-  menuOpenId: string | null;
-  setMenuOpenId: (id: string | null) => void;
-}) => {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    opacity: isDragging ? 0 : 1,
-    transition: 'opacity 0.0s ease',
-  };
-  const showMenu = menuOpenId === id;
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`relative ${cardStyles[status]} rounded shadow transition-all duration-200 ease-in-out p-4`}
-    >
-      <div {...attributes} {...listeners} className="cursor-grab select-none">
-        <div className="flex justify-between items-start">
-          <div>
-            <p className="text-2xl font-bold text-lightText">{name}</p>
-
-            {description && (
-              <p className="text-base bg-purple-500 bg-opacity-30 text-purple-100 mt-3 p-3 rounded-md line-clamp-3 font-medium">
-                {description}
-              </p>
-            )}
-
-            {due_date && (
-              <p className="text-sm inline-block mt-4 bg-primary text-white px-4 py-1.5 rounded-full">
-                Due: {new Date(due_date + 'T00:00:00').toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })}
-                </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          setMenuOpenId(showMenu ? null : id);
-        }}
-        className="absolute top-3 right-3 text-mutedText hover:text-white"
-      >
-        ⋮
-      </button>
-
-      {showMenu && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute right-3 top-12 bg-surface border border-soft text-lightText rounded shadow z-50"
-        >
-          <button onClick={onEdit} className="block w-full text-left px-5 py-3 hover:bg-background">
-            Edit
-          </button>
-          <button
-            onClick={onDelete}
-            className="block w-full text-left px-5 py-3 hover:bg-red-100 text-red-500"
-          >
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-
-const statusStyles: Record<string, string> = {
-  incomplete: 'bg-yellow-900/40',
-  in_progress: 'bg-orange-900/40',
-  complete: 'bg-emerald-700/30',
-  overdue: 'bg-red-900/40',
-  on_hold: 'bg-zinc-800/50',
-};
-
-
-const cardStyles: Record<string, string> = {
-  incomplete: 'bg-card border border-soft',
-  in_progress: 'bg-card border border-soft',
-  complete: 'bg-card border border-soft',
-  overdue: 'bg-card border border-soft',
-  on_hold: 'bg-card border border-soft',
-};
