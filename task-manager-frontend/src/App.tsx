@@ -10,6 +10,7 @@ function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/team/:teamId" element={<TeamDashboard />} />
 
+
     </Routes>
   );
 }
