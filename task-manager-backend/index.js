@@ -17,7 +17,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     //origin: ['http://localhost:5173', 'https://simpletaskmanager-frontend.onrender.com'],
-    origin: ['http://localhost:5173', 'https://simple-task-manager-frontend.vercel.app'],
+    origin: ['http://localhost:5173', 'https://simpletaskmanager-frontend.onrender.com'],
     credentials: true
   }
 });
@@ -72,7 +72,7 @@ async function autoUpdateOverdueTasks(email) {
 
 app.use(cors({
   //origin: ['http://localhost:5173', 'https://simpletaskmanager-frontend.onrender.com'], 
-  origin: ['http://localhost:5173', 'https://simple-task-manager-frontend.vercel.app'],
+  origin: ['http://localhost:5173', 'https://simpletaskmanager-frontend.onrender.com'],
   credentials: true
 }));
 app.use(cookieParser());
@@ -92,7 +92,7 @@ app.get('/auth/google/callback',
   (req, res) => {
     const token = req.user.token;
     //const redirectBase = 'http://localhost:5173';
-    const redirectBase = 'https://simple-task-manager-frontend.vercel.app';
+    const redirectBase = 'https://simpletaskmanager-frontend.onrender.com';
     //process.env.FRONTEND_URL || 
     res.redirect(`${redirectBase}/dashboard?token=${token}`);
       }
