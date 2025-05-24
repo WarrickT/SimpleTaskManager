@@ -8,6 +8,7 @@ type Message = {
   sent_at: string;
 };
 
+
 export const useChat = (teamId: number, userEmail: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
 
